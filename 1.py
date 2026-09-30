@@ -1,189 +1,235 @@
-import os
-import sys
-from pathlib import Path
+import flet as ft
+import flet_video as ftv
+import subprocess, os, threading, re, time, asyncio, random
 import whisper
-import srt
-import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
-import threading
-import subprocess
 
-# Хардкод пути вывода
-OUTPUT_DIR = r"D:\download\vid\app2024_исходники\саб3титры"
+OPEN_PHRASES = [
+    "Открываю портал в файловую систему...",
+    "Пробуждаю душу видео...",
+    "Сканирую временные потоки...",
+    "Читаю древние метаданные...",
+    "Прислушиваюсь к эху контейнера...",
+    "Разрываю печати кодека...",
+    "Взываю к духам ffmpeg...",
+    "Ищу скрытые дорожки...",
+    "Осматриваю каркас файла...",
+    "Считаю такты времени...",
+]
 
-class AudioToTextApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Audio/Video to Text Converter")
-        self.root.geometry("600x500")
-        
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        
-        main_frame = tk.Frame(root, padx=10, pady=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        btn_frame = tk.Frame(main_frame)
-        btn_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.select_btn = tk.Button(
-            btn_frame, text="Выбрать файл", command=self.select_file,
-            font=("Arial", 12), bg="#4CAF50", fg="white", padx=20, pady=10
-        )
-        self.select_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.file_label = tk.Label(btn_frame, text="Файл не выбран", font=("Arial", 10), fg="gray")
-        self.file_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        self.convert_btn = tk.Button(
-            main_frame, text="Конвертировать", command=self.start_conversion,
-            font=("Arial", 12), bg="#2196F3", fg="white", padx=20, pady=10, state=tk.DISABLED
-        )
-        self.convert_btn.pack(pady=(0, 10))
-        
-        self.progress_label = tk.Label(main_frame, text="", font=("Arial", 10), fg="blue")
-        self.progress_label.pack(pady=(0, 10))
-        
-        result_frame = tk.Frame(main_frame)
-        result_frame.pack(fill=tk.BOTH, expand=True)
-        
-        tk.Label(result_frame, text="Результат:", font=("Arial", 11, "bold")).pack(anchor=tk.W)
-        
-        self.result_text = scrolledtext.ScrolledText(result_frame, wrap=tk.WORD, font=("Consolas", 10), height=15)
-        self.result_text.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
-        
-        self.status_bar = tk.Label(root, text="Готов к работе", bd=1, relief=tk.SUNKEN, anchor=tk.W, font=("Arial", 9))
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        self.selected_file = None
-    
-    def select_file(self):
-        filetypes = [
-            ("Все поддерживаемые файлы", "*.mp3 *.wav *.m4a *.flac *.ogg *.aac *.wma *.mp4 *.avi *.mkv *.mov"),
-            ("Аудио файлы", "*.mp3 *.wav *.m4a *.flac *.ogg *.aac *.wma"),
-            ("Видео файлы", "*.mp4 *.avi *.mkv *.mov"),
-            ("Все файлы", "*.*")
-        ]
-        
-        filename = filedialog.askopenfilename(title="Выберите аудио или видео файл", filetypes=filetypes)
-        
-        if filename:
-            self.selected_file = filename
-            self.file_label.config(text=os.path.basename(filename), fg="black")
-            self.convert_btn.config(state=tk.NORMAL)
-            self.status_bar.config(text=f"Выбран файл: {os.path.basename(filename)}")
-    
-    def extract_audio_from_video(self, video_path):
-        """Извлекает СТЕРЕО аудио для лучшего разделения музыки и голоса"""
-        audio_path = os.path.join(OUTPUT_DIR, "temp_audio.wav")
-        
-        try:
-            cmd = [
-                'ffmpeg', '-i', video_path, '-vn',
-                '-acodec', 'pcm_s16le',
-                '-ar', '16000',
-                '-ac', '2',  # <-- ВАЖНО: Стерео вместо моно
-                '-y', audio_path
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"FFmpeg ошибка: {result.stderr}")
-            return audio_path
-            
-        except FileNotFoundError:
-            raise Exception("FFmpeg не найден! Установи FFmpeg и добавь в PATH")
-    
-    def start_conversion(self):
-        if not self.selected_file:
-            messagebox.showerror("Ошибка", "Сначала выберите файл!")
+VIDEO_PHRASES = [
+    "Отделяю плоть от духа...",
+    "Расщепляю видеопоток...",
+    "Сдираю видеослой...",
+    "Извлекаю движущиеся образы...",
+    "Кую видеокаркас заново...",
+    "Вырываю кадры из потока...",
+    "Замораживаю движение в файл...",
+]
+
+AUDIO_PHRASES = [
+    "Извлекаю эхо голосов...",
+    "Отсекаю аудиодорожку от каркаса...",
+    "Ловлю звуковые волны...",
+    "Отлавливаю шёпот из глубины...",
+    "Вскрываю звуковой слой...",
+    "Запечатываю голоса в m4a...",
+]
+
+WHISPER_PHRASES = [
+    "Призываю оракула Whisper...",
+    "Загружаю нейронного демона (medium)...",
+    "Оракул вслушивается в шёпот...",
+    "Расшифровываю речь смертных...",
+    "Ловлю слова в потоке шума...",
+    "Пробуждаю слух древних...",
+    "Погружаюсь в речевой поток...",
+    "Демон шепчет ответы...",
+    "Разбираю речь на атомы...",
+    "Слушаю сквозь помехи...",
+]
+
+SUB_PHRASES = [
+    "Начертываю руны субтитров...",
+    "Запечатываю слова в SRT...",
+    "Записываю свиток текста...",
+    "Высекаю буквы на камне...",
+    "Связываю слова с временем...",
+    "Укладываю строки в хронологию...",
+    "Кую субтитры в тишине...",
+]
+
+FINAL_PHRASES = [
+    "Ритуал завершён.",
+    "Душа обрела форму.",
+    "Путь открыт.",
+    "Печати сорваны. Работа готова.",
+]
+
+def main(page: ft.Page):
+    page.title = "Split A/V"
+    page.window.width = 700
+    page.window.height = 750
+    page.window.resizable = False
+
+    result_folder = {"path": None}
+    state = {"running": False, "start": 0}
+    mode_state = {"value": "1"}
+
+    async def pick_input(e):
+        r = await ft.FilePicker().pick_files(allow_multiple=False, allowed_extensions=["mp4","mkv","avi","mov","webm"])
+        if r:
+            inp.value = r[0].path
+            preview.playlist = [ftv.VideoMedia(r[0].path)]
+            if not name.value:
+                name.value = os.path.splitext(os.path.basename(r[0].path))[0]
+            page.update()
+
+    async def pick_output(e):
+        r = await ft.FilePicker().get_directory_path()
+        if r:
+            out.value = r
+            page.update()
+
+    def open_folder(e):
+        if result_folder["path"]:
+            subprocess.Popen(["explorer", result_folder["path"]])
+
+    async def copy_path(e):
+        if result_path.value:
+            await ft.Clipboard().set(result_path.value)
+            stage_text.value = "Путь скопирован"
+            page.update()
+
+    def fmt_ts(t):
+        h, m, s = int(t//3600), int((t%3600)//60), t%60
+        return f"{h:02d}:{m:02d}:{s:06.3f}".replace(".", ",")
+
+    def get_duration(path):
+        r = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration","-of","default=nw=1:nk=1", path],
+                           capture_output=True, text=True)
+        return float(r.stdout.strip())
+
+    def log(msg):
+        stage_text.value = msg
+        page.update()
+
+    def run_ffmpeg(cmd, total, stage_name):
+        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, universal_newlines=True)
+        for line in proc.stderr:
+            m = re.search(r"time=(\d+):(\d+):(\d+\.\d+)", line)
+            if m:
+                t = int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))
+                p = min(t/total, 1.0)
+                progress.value = p
+                stage_text.value = f"{stage_name} {int(p*100)}%"
+        proc.wait()
+
+    def work():
+        m = mode_state["value"]
+        folder = os.path.join(out.value, name.value)
+        os.makedirs(folder, exist_ok=True)
+        v = os.path.join(folder, "video.mp4")
+        a = os.path.join(folder, "audio.m4a")
+
+        log(random.choice(OPEN_PHRASES))
+        time.sleep(random.uniform(0.3, 0.7))
+        total = get_duration(inp.value)
+        time.sleep(random.uniform(0.2, 0.5))
+
+        log(random.choice(VIDEO_PHRASES))
+        run_ffmpeg(["ffmpeg","-y","-i",inp.value,"-an","-c:v","copy",v], total, "Расщепляю видеопоток")
+
+        log(random.choice(AUDIO_PHRASES))
+        run_ffmpeg(["ffmpeg","-y","-i",inp.value,"-vn","-c:a","copy",a], total, "Отсекаю аудио")
+
+        lang = "—"
+
+        if m in ("2", "3"):
+            log(random.choice(WHISPER_PHRASES))
+            time.sleep(random.uniform(0.4, 0.9))
+            model = whisper.load_model("medium")
+            log(random.choice(WHISPER_PHRASES))
+            progress.value = None
+            result = model.transcribe(a, word_timestamps=True)
+            lang = result["language"]
+
+            log(random.choice(SUB_PHRASES))
+            srt = os.path.join(folder, "subtitles.srt")
+            with open(srt, "w", encoding="utf-8") as f:
+                for i, seg in enumerate(result["segments"], 1):
+                    f.write(f"{i}\n{fmt_ts(seg['start'])} --> {fmt_ts(seg['end'])}\n{seg['text'].strip()}\n\n")
+
+            if m == "3":
+                log(random.choice(SUB_PHRASES))
+                txt = os.path.join(folder, "text.txt")
+                with open(txt, "w", encoding="utf-8") as f:
+                    f.write(result["text"].strip())
+
+        state["running"] = False
+        result_folder["path"] = folder
+        log(random.choice(FINAL_PHRASES) + f" Язык: {lang}")
+        progress.value = 1
+        result_path.value = folder
+        open_btn.disabled = False
+        run_btn.disabled = False
+        page.update()
+
+    async def ticker():
+        while state["running"]:
+            elapsed = int(time.time() - state["start"])
+            timer_text.value = f"⏱ {elapsed//60:02d}:{elapsed%60:02d}"
+            page.update()
+            await asyncio.sleep(1)
+
+    def run(e):
+        if not inp.value or not out.value or not name.value:
+            stage_text.value = "Заполни все поля"
+            page.update()
             return
-        
-        self.convert_btn.config(state=tk.DISABLED)
-        self.select_btn.config(state=tk.DISABLED)
-        
-        thread = threading.Thread(target=self.convert_file, daemon=True)
-        thread.start()
-    
-    def convert_file(self):
-        temp_audio = None
-        
-        try:
-            file_ext = Path(self.selected_file).suffix.lower()
-            audio_path = self.selected_file
-            
-            if file_ext in ['.mp4', '.avi', '.mkv', '.mov']:
-                self.update_status("Извлечение аудио из видео...")
-                temp_audio = self.extract_audio_from_video(self.selected_file)
-                audio_path = temp_audio
-            
-            self.update_status("Загрузка модели Whisper (medium)...")
-            
-            # medium - оптимально для русского + скорости. large-v2 только если есть RTX 3060+
-            model = whisper.load_model("medium") 
-            
-            self.update_status("Транскрибация...")
-            
-            # ВАЖНЫЕ ПАРАМЕТРЫ ДЛЯ МУЗЫКИ И РУССКОГО ЯЗЫКА:
-            result = model.transcribe(
-                audio_path, 
-                language="ru",           # Принудительно русский
-                condition_on_previous_text=False,  # Не дает модели "залипать" на прошлых фразах
-                no_speech_threshold=0.6  # Игнорирует тишину/музыку без слов
-            )
-            
-            base_name = Path(self.selected_file).stem
-            txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
-            with open(txt_path, 'w', encoding='utf-8') as f:
-                f.write(result['text'])
-            
-            subtitles = []
-            for i, segment in enumerate(result['segments'], 1):
-                start_time = srt.timedelta(seconds=segment['start'])
-                end_time = srt.timedelta(seconds=segment['end'])
-                subtitle = srt.Subtitle(
-                    index=i, start=start_time, end=end_time,
-                    content=segment['text'].strip()
-                )
-                subtitles.append(subtitle)
-            
-            srt_content = srt.compose(subtitles)
-            srt_path = os.path.join(OUTPUT_DIR, f"{base_name}.srt")
-            with open(srt_path, 'w', encoding='utf-8') as f:
-                f.write(srt_content)
-            
-            if temp_audio and os.path.exists(temp_audio):
-                os.remove(temp_audio)
-            
-            self.root.after(0, lambda: self.show_result(result['text'], txt_path, srt_path))
-            
-        except Exception as e:
-            if temp_audio and os.path.exists(temp_audio):
-                os.remove(temp_audio)
-            self.root.after(0, lambda: self.show_error(str(e)))
-    
-    def update_status(self, message):
-        self.root.after(0, lambda: self.progress_label.config(text=message))
-    
-    def show_result(self, text, txt_path, srt_path):
-        self.convert_btn.config(state=tk.NORMAL)
-        self.select_btn.config(state=tk.NORMAL)
-        
-        self.result_text.delete(1.0, tk.END)
-        self.result_text.insert(tk.END, text)
-        
-        self.progress_label.config(text="✓ Готово!")
-        self.status_bar.config(text=f"Файлы сохранены в: {OUTPUT_DIR}")
-        
-        messagebox.showinfo("Успех", f"Конвертация завершена!\n\nTXT: {txt_path}\nSRT: {srt_path}")
-    
-    def show_error(self, error_message):
-        self.convert_btn.config(state=tk.NORMAL)
-        self.select_btn.config(state=tk.NORMAL)
-        self.progress_label.config(text="✗ Ошибка")
-        self.status_bar.config(text="Произошла ошибка")
-        messagebox.showerror("Ошибка", f"Произошла ошибка:\n{error_message}")
+        run_btn.disabled = True
+        open_btn.disabled = True
+        result_folder["path"] = None
+        result_path.value = ""
+        progress.value = 0
+        state["running"] = True
+        state["start"] = time.time()
+        timer_text.value = "⏱ 00:00"
+        page.update()
+        page.run_task(ticker)
+        threading.Thread(target=work, daemon=True).start()
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = AudioToTextApp(root)
-    root.mainloop()
+    inp = ft.TextField(label="Видео", read_only=True, expand=True)
+    out = ft.TextField(label="Куда", read_only=True, expand=True)
+    name = ft.TextField(label="Имя папки", expand=True)
+    stage_text = ft.Text("Ожидание", weight=ft.FontWeight.BOLD)
+    timer_text = ft.Text("⏱ 00:00")
+    progress = ft.ProgressBar(value=0, expand=True)
+    preview = ftv.Video(height=180)
+    run_btn = ft.Button("Начать", on_click=run)
+    open_btn = ft.Button("Открыть папку", on_click=open_folder, disabled=True)
+    copy_btn = ft.Button("Копировать путь", on_click=copy_path)
+    result_path = ft.TextField(label="Готово в", read_only=True, expand=True)
+
+    mode = ft.RadioGroup(
+        value="1",
+        on_change=lambda e: mode_state.update({"value": e.control.value}),
+        content=ft.Column([
+            ft.Radio(value="1", label="1 — только видео + звук"),
+            ft.Radio(value="2", label="2 — видео + звук + субтитры (SRT)"),
+            ft.Radio(value="3", label="3 — видео + звук + субтитры (SRT) + текст"),
+        ])
+    )
+
+    page.add(
+        ft.Row([inp, ft.Button("Выбрать видео", on_click=pick_input)]),
+        ft.Row([out, ft.Button("Выбрать папку", on_click=pick_output)]),
+        name,
+        mode,
+        ft.Row([run_btn, open_btn]),
+        ft.Row([stage_text, timer_text], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        progress,
+        ft.Row([result_path, copy_btn]),
+        preview,
+    )
+
+ft.run(main)
