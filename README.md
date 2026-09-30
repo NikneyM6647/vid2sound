@@ -1,36 +1,61 @@
-Whisper Speech-to-Text
-Python tool that transcribes audio and video into text and .srt subtitles using OpenAI Whisper. Supports 99+ languages, runs fully offline on CPU or GPU. Optional Telegram bot mode.
+```markdown
+# vid2sound
 
-Stack: Python 3.9+, faster-whisper, ffmpeg, aiogram
+GUI-утилита на Python + Flet для разделения видео на видеодорожку и аудиодорожку, с опциональной транскрипцией через Whisper (SRT-субтитры и текстовый файл).
 
+## Возможности
 
+- Выбор видеофайла (mp4, mkv, avi, mov, webm) с предпросмотром прямо в окне.
+- Выбор папки, куда сохранять результат.
+- Пользовательское имя папки результата.
+- Три режима работы:
+  1. Только видео + звук.
+  2. Видео + звук + субтитры (`subtitles.srt`).
+  3. Видео + звук + субтитры (`subtitles.srt`) + текст (`text.txt`).
+- Прогресс-бар (реальный для ffmpeg, неопределённый во время работы Whisper).
+- Секундомер текущего процесса.
+- Тематические статус-сообщения в реальном времени.
+- Кнопка "Открыть папку" (активируется после завершения).
+- Кнопка "Копировать путь" к папке результата.
+- Фиксированный размер окна.
 
-faster-whisper>=1.0.0
-ctranslate2>=4.0.0
-av>=10.0.0
+## Структура выходной папки
 
-# 1. Chocolaty installation(powerShell(ADMINS))
+```
+<выбранная_папка>/<имя_папки>/
+├── video.mp4
+├── audio.m4a
+├── subtitles.srt   (режимы 2 и 3)
+└── text.txt        (режим 3)
+```
 
-  ```
-  Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-  ```
+## Требования
 
-  ```
-  choco install ffmpeg
-  ```
-   
-# 2. FFmpeg in PATH on Windows
-   
-  ```
-  where.exe ffmpeg -----  find out and copy the path
-  ```
+- Python 3.10+
+- [ffmpeg](https://ffmpeg.org/) в `PATH`
+  - Windows: `winget install ffmpeg`
+  - Linux: `sudo apt install ffmpeg`
+  - macOS: `brew install ffmpeg`
 
-# 3. Change the path to your own.
-   
-  ```
-  $ffmpegPath = "C:\ffmpeg\bin
-  ```
+## Установка
 
-  ```
-  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$ffmpegPath", "Machine")
-  ```
+```bash
+pip install flet flet-video openai-whisper
+```
+
+## Запуск
+
+```bash
+python 1.py
+```
+
+При первом запуске Whisper скачает модель `medium` (~1.5 ГБ).
+
+## Примечания
+
+- Транскрипция выполняется моделью `medium` с автоопределением языка.
+- Прогресс Whisper не отображается пошагово — вместо этого прогресс-бар становится неопределённым.
+- Для смены модели Whisper отредактируйте `whisper.load_model("medium")` в коде (`tiny`, `base`, `small`, `medium`, `large`).
+```
+
+Сохрани как `README.md` в корне репозитория.
